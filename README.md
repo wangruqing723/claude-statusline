@@ -5,7 +5,7 @@
 ## 效果预览
 
 ```
-[reviewer] │ ai-gateway │ Opus │ xhigh │ ctx 42% │ ↑15k ↓1k
+[reviewer] │ ai-gateway │ Opus │ xhigh │ ctx 84k/200k (42%) │ ↑84k ↓1k
 demo │ ~/devtool/claude │ (main) ✓
 ```
 
@@ -69,7 +69,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/wangruqing723/claude-statusl
 | 网关 | 中转/代理网关名或 host:port | `CC_GATEWAY_NAME` 环境变量，回退为 `ANTHROPIC_BASE_URL` 的 host:port |
 | 模型 | 模型显示名（如 `Opus` / `Sonnet`） | `model.display_name` / `model.name` / `model.id` |
 | 推理级别 | 思考深度（如 `xhigh` / `high`） | `effort.level` |
-| 上下文占用 | `ctx XX%`，带三档配色：<50% 绿、<80% 橙、≥80% 红 | `context_window.used_percentage` |
+| 上下文占用 | `ctx 84k/200k (42%)`——已用量／窗口总容量（百分比），带三档配色：<50% 绿、<80% 橙、≥80% 红。拿不到窗口容量时退回 `ctx XX%` | `context_window.total_input_tokens` / `context_window_size` / `used_percentage` |
 | token 收发 | `↑收k ↓发k`，以千为单位 | `context_window.total_input_tokens` / `total_output_tokens` |
 
 ### 行2
@@ -82,7 +82,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/wangruqing723/claude-statusl
 
 ## 自定义配色
 
-编辑 `~/.claude/statusline.sh` 顶部的配色变量（行 58–73），参考 [256 色表](https://www.ditig.com/publications/256-colors-cheat-sheet)。
+编辑 `~/.claude/statusline.sh` 顶部的配色变量（行 69–83），参考 [256 色表](https://www.ditig.com/publications/256-colors-cheat-sheet)。
 
 当前配色为 **Gruvbox Dark**：
 
@@ -129,7 +129,7 @@ PROGRESS_HIGH="\033[38;5;203m"   # >=80% 红
 
 2. **手动测试脚本**
    ```bash
-   echo '{"model":{"display_name":"Opus"},"context_window":{"used_percentage":42,"total_input_tokens":5000,"total_output_tokens":500},"cwd":"'"$HOME"'"}' | bash ~/.claude/statusline.sh
+   echo '{"model":{"display_name":"Opus"},"context_window":{"used_percentage":42,"context_window_size":200000,"total_input_tokens":84000,"total_output_tokens":1200},"cwd":"'"$HOME"'"}' | bash ~/.claude/statusline.sh
    ```
    应打印两行带色输出。若报错 `jq: command not found`，手动装 `jq`。
 

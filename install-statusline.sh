@@ -140,8 +140,11 @@ cat > "$STATUSLINE" <<'STATUSLINE_EOF'
 #!/bin/bash
 # Claude Code Statusline — 配色: Gruvbox Dark
 #
-# 行1: Agent │ 网关 │ 模型 │ 推理级别 │ 上下文进度 │ token 收发
+# 行1: Agent │ 网关 │ 模型 │ 推理级别 │ 上下文占用 │ token 收发
 # 行2: 会话名 │ 当前目录 │ git 分支与状态
+#
+# 上下文占用显示为 "ctx 84k/200k (42%)"（已用量／窗口总容量）；
+# 拿不到窗口总容量（旧版 Claude Code 不传 context_window_size）时退回 "ctx 42%"。
 #
 # 无值的字段连同其分隔符一起隐藏（Agent / 会话名 / 推理级别 / git 均可能缺失）。
 # 网关名取自 CC_GATEWAY_NAME（见 ~/.claude-env）；未设置时回退为 ANTHROPIC_BASE_URL 的 host:port。
@@ -166,6 +169,7 @@ while IFS= read -r _f; do FIELDS+=("$_f"); done < <(
         (.model.display_name // .model.name // .model.id // "Claude"),
         (.effort.level // ""),
         (.context_window.used_percentage // 0),
+        (.context_window.context_window_size // 0),
         (.context_window.total_input_tokens // 0),
         (.context_window.total_output_tokens // 0),
         (.session_name // ""),
@@ -177,10 +181,11 @@ agent="${FIELDS[0]}"
 model="${FIELDS[1]}"
 effort="${FIELDS[2]}"
 percent="${FIELDS[3]}"
-input="${FIELDS[4]}"
-output="${FIELDS[5]}"
-session_name="${FIELDS[6]}"
-cwd="${FIELDS[7]}"
+ctx_size="${FIELDS[4]}"
+input="${FIELDS[5]}"
+output="${FIELDS[6]}"
+session_name="${FIELDS[7]}"
+cwd="${FIELDS[8]}"
 
 # 网关名：优先 CC_GATEWAY_NAME，否则从 base URL 剥出 host:port
 gateway="${CC_GATEWAY_NAME:-}"
@@ -193,6 +198,14 @@ fi
 percent="${percent%%.*}"
 [[ "$percent" =~ ^[0-9]+$ ]] || percent=0
 (( percent > 100 )) && percent=100
+
+# 上下文用量与总容量规整：去小数、非数字兜底为 0（为 0 时上下文段退回纯百分比）
+ctx_size="${ctx_size%%.*}"
+[[ "$ctx_size" =~ ^[0-9]+$ ]] || ctx_size=0
+input="${input%%.*}"
+[[ "$input" =~ ^[0-9]+$ ]] || input=0
+output="${output%%.*}"
+[[ "$output" =~ ^[0-9]+$ ]] || output=0
 
 # ── 配色
 RESET="\033[0m"
@@ -233,6 +246,14 @@ get_directory() {
 
 format_tokens() { printf '%s' "$(($1 / 1000))"; }
 
+# 窗口总容量带单位：>=100 万按 M 显示（1M 窗口读作 1M 而非 1000k），否则按 k
+format_window() {
+    local n=$1
+    if (( n >= 1000000 )); then printf '%sM' "$((n / 1000000))"
+    else                        printf '%sk' "$((n / 1000))"
+    fi
+}
+
 # 用分隔符拼接非空片段
 join_parts() {
     local out="" p
@@ -256,7 +277,13 @@ p_model="${MODEL_COLOR}${model}${RESET}"
 p_effort=""
 [[ -n "$effort" ]] && p_effort="${EFFORT_COLOR}${effort}${RESET}"
 
-p_ctx="$(get_progress_color "$percent")ctx ${percent}%${RESET}"
+# 上下文段：拿到总容量时显示 "ctx 84k/200k (42%)"，拿不到则退回纯百分比
+if (( ctx_size > 0 )); then
+    ctx_text="ctx $(format_tokens "$input")k/$(format_window "$ctx_size") (${percent}%)"
+else
+    ctx_text="ctx ${percent}%"
+fi
+p_ctx="$(get_progress_color "$percent")${ctx_text}${RESET}"
 
 p_tokens="${TOKEN_COLOR}↑$(format_tokens "$input")k ↓$(format_tokens "$output")k${RESET}"
 
@@ -317,7 +344,7 @@ fi
 
 echo ""
 echo "==> 验证渲染"
-echo '{"agent":{"name":"demo"},"model":{"display_name":"Opus"},"effort":{"level":"high"},"context_window":{"used_percentage":42,"total_input_tokens":15500,"total_output_tokens":1200},"session_name":"demo","cwd":"'"$HOME"'"}' | bash "$STATUSLINE"
+echo '{"agent":{"name":"demo"},"model":{"display_name":"Opus"},"effort":{"level":"high"},"context_window":{"used_percentage":42,"context_window_size":200000,"total_input_tokens":84000,"total_output_tokens":1200},"session_name":"demo","cwd":"'"$HOME"'"}' | bash "$STATUSLINE"
 echo "  (上面两行为实际渲染效果，退出码 $?)"
 
 echo ""
