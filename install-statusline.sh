@@ -142,11 +142,14 @@ cat > "$STATUSLINE" <<'STATUSLINE_EOF'
 #
 # 行1: Agent │ 网关 │ 模型 │ 推理级别 │ 上下文占用 │ token 收发
 # 行2: 会话名 │ 当前目录 │ git 分支与状态
+# 行3: 语言运行时版本（Java / Node / Python / Go；无任何版本时整行省略，退回两行）
 #
 # 上下文占用显示为 "ctx 84k/200k (42%)"（已用量／窗口总容量）；
 # 拿不到窗口总容量（旧版 Claude Code 不传 context_window_size）时退回 "ctx 42%"。
 #
-# 无值的字段连同其分隔符一起隐藏（Agent / 会话名 / 推理级别 / git 均可能缺失）。
+# 无值的字段连同其分隔符一起隐藏（Agent / 会话名 / 推理级别 / git / 语言版本 均可能缺失）。
+# 语言运行时版本按当前目录的标志文件自动探测（如 package.json→node、go.mod→go），
+# 仅当标志文件存在且对应命令可用时才显示；结果按 TTL 缓存，避免每次刷新都 fork 版本命令。
 # 网关名取自 CC_GATEWAY_NAME（见 ~/.claude-env）；未设置时回退为 ANTHROPIC_BASE_URL 的 host:port。
 
 # 检测 jq 依赖
@@ -216,6 +219,7 @@ MODEL_COLOR="\033[38;5;175m"    # 粉
 EFFORT_COLOR="\033[38;5;214m"   # 橙
 TOKEN_COLOR="\033[38;5;187m"    # 米
 SESSION_COLOR="\033[38;5;109m"  # 蓝
+VERSION_COLOR="\033[38;5;108m"  # 青  语言运行时版本
 DIR_COLOR="\033[38;5;142m"      # 绿
 GIT_COLOR="\033[38;5;175m"      # 粉
 GIT_CLEAN="\033[38;5;142m"      # 绿
@@ -263,6 +267,41 @@ join_parts() {
         out+="$p"
     done
     printf '%b\n' "$out"
+}
+
+# ── 语言运行时版本探测（按目录标志文件自动探测；结果按 TTL 缓存，避免每次刷新都 fork 版本命令）
+CC_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/cc-statusline"
+CC_CACHE_TTL_MIN=10   # 缓存有效期（分钟）；切换运行时版本后最多经此时长才刷新
+
+# 判断 cwd 下是否存在任一标志文件
+has_marker() {
+    local m
+    for m in "$@"; do [[ -e "$cwd/$m" ]] && return 0; done
+    return 1
+}
+
+# 实际取版本号（仅在缓存失效时调用）
+version_of() {
+    case "$1" in
+        java)   java -version 2>&1 | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' ;;
+        node)   node --version 2>/dev/null ;;
+        python) { python3 --version 2>/dev/null || python --version 2>/dev/null; } | awk '{print $2}' ;;
+        go)     go version 2>/dev/null | awk '{print $3}' | sed 's/^go//' ;;
+    esac
+}
+
+# 带缓存取版本：键=语言+cwd；命中且未过期读缓存，否则重算并写回
+cached_version() {
+    local lang="$1" key h f v
+    key="$lang|$cwd"
+    h=$(printf '%s' "$key" | cksum | tr ' ' '_')
+    f="$CC_CACHE_DIR/$h"
+    if [[ -f "$f" && -n "$(find "$f" -mmin "-$CC_CACHE_TTL_MIN" 2>/dev/null)" ]]; then
+        cat "$f"; return
+    fi
+    v="$(version_of "$lang")"
+    mkdir -p "$CC_CACHE_DIR" 2>/dev/null && printf '%s' "$v" > "$f" 2>/dev/null
+    printf '%s' "$v"
 }
 
 # ── 行1 各片段
@@ -315,7 +354,36 @@ if [[ -n "$cwd" ]]; then
     fi
 fi
 
+# ── 语言运行时版本片段（单独作为第3行输出；每种语言:标志文件存在 + 命令可用才探测）
+# 显示顺序固定为: Java → Node → Python → Go
+lang_parts=()
+if [[ -n "$cwd" && -d "$cwd" ]]; then
+    if has_marker pom.xml build.gradle build.gradle.kts && command -v java >/dev/null 2>&1; then
+        v="$(cached_version java)";   [[ -n "$v" ]] && lang_parts+=("java $v")
+    fi
+    if has_marker package.json && command -v node >/dev/null 2>&1; then
+        v="$(cached_version node)";   [[ -n "$v" ]] && lang_parts+=("node $v")
+    fi
+    if has_marker pyproject.toml requirements.txt setup.py Pipfile .python-version \
+       && { command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1; }; then
+        v="$(cached_version python)"; [[ -n "$v" ]] && lang_parts+=("py $v")
+    fi
+    if has_marker go.mod && command -v go >/dev/null 2>&1; then
+        v="$(cached_version go)";     [[ -n "$v" ]] && lang_parts+=("go $v")
+    fi
+fi
+
+lang_colored=()
+for lp in "${lang_parts[@]}"; do
+    lang_colored+=("${VERSION_COLOR}${lp}${RESET}")
+done
+
 join_parts "$p_session" "$p_dir" "$p_git"
+
+# ── 行3：语言运行时版本（无任何版本时整行不输出，状态栏退回两行）
+if (( ${#lang_colored[@]} > 0 )); then
+    join_parts "${lang_colored[@]}"
+fi
 
 # 确保脚本始终以退出码 0 结束，避免最后一条 && 短路导致 Claude Code 判定 statusline 失败而不渲染
 exit 0

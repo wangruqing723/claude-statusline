@@ -7,12 +7,14 @@
 ```
 [reviewer] │ ai-gateway │ Opus │ xhigh │ ctx 84k/200k (42%) │ ↑84k ↓1k
 demo │ ~/devtool/claude │ (main) ✓
+java 21.0.2 │ node v20.14.0 │ py 3.12.4
 ```
 
 **行1**：Agent │ 网关 │ 模型 │ 推理级别 │ 上下文占用 │ token 收发  
-**行2**：会话名 │ 当前目录 │ git 分支与状态
+**行2**：会话名 │ 当前目录 │ git 分支与状态  
+**行3**：语言运行时版本（Java / Node / Python / Go）
 
-无值的字段连同分隔符一起隐藏（Agent / 会话名 / 推理级别 / git 均可能缺失）。
+无值的字段连同分隔符一起隐藏（Agent / 会话名 / 推理级别 / git 均可能缺失）；行3 无任何版本时整行省略，状态栏退回两行。
 
 ## 一键安装
 
@@ -80,6 +82,20 @@ bash <(curl -fsSL https://raw.githubusercontent.com/wangruqing723/claude-statusl
 | 当前目录 | `~` 缩写的工作目录 |
 | git 分支与状态 | `(分支名) ✓` 干净 / `✗ +暂存 ~修改 ?未跟踪` 脏 |
 
+### 行3：语言运行时版本
+
+单独一行展示当前目录用到的语言运行时版本。仅当当前目录存在对应「标志文件」且对应命令已安装时才显示，多种语言并存则各占一段；**若一个都探测不到，则整行省略，状态栏退回两行**。显示顺序固定为 **Java → Node → Python → Go**：
+
+| 语言 | 标志文件 | 命令 | 显示 |
+|------|---------|------|------|
+| Java | `pom.xml` / `build.gradle` / `build.gradle.kts` | `java` | `java 21.0.2` |
+| Node | `package.json` | `node` | `node v20.14.0` |
+| Python | `pyproject.toml` / `requirements.txt` / `setup.py` / `Pipfile` / `.python-version` | `python3`（回退 `python`） | `py 3.12.4` |
+| Go | `go.mod` | `go` | `go 1.22.1` |
+
+- **实际运行时版本**：探测的是当前 shell 里实际生效的版本（受 nvm / pyenv / asdf 等影响），不是项目声明的目标版本。
+- **缓存**：结果按目录缓存到 `${XDG_CACHE_HOME:-~/.cache}/cc-statusline`，默认 10 分钟（脚本内 `CC_CACHE_TTL_MIN`）；这样每次刷新不必重复 fork 版本命令（尤其 `java -version` 启动 JVM 较慢）。切换运行时版本后最多经此时长才刷新，想立即生效可删除该缓存目录。
+
 ## 自定义配色
 
 编辑 `~/.claude/statusline.sh` 顶部的配色变量（行 69–83），参考 [256 色表](https://www.ditig.com/publications/256-colors-cheat-sheet)。
@@ -92,6 +108,7 @@ GATEWAY_COLOR="\033[38;5;108m"   # 青
 MODEL_COLOR="\033[38;5;175m"     # 粉
 EFFORT_COLOR="\033[38;5;214m"    # 橙
 TOKEN_COLOR="\033[38;5;187m"     # 米
+VERSION_COLOR="\033[38;5;108m"   # 青（语言运行时版本）
 DIR_COLOR="\033[38;5;142m"       # 绿
 GIT_COLOR="\033[38;5;175m"       # 粉
 GIT_CLEAN="\033[38;5;142m"       # 绿
